@@ -7,46 +7,45 @@ Dashboard cu fluxurile nete zilnice ale ETF-urilor spot Bitcoin din SUA (sursa: 
 ```
 flux-btc/
 ├── index.html                         ← pagina (grafice d3, totul într-un fișier)
+├── api/etf-flows.js                   ← funcție Vercel: date live de la SoSoValue (ultima lună)
+├── vercel.json                        ← durata maximă a funcției
 ├── data/
-│   └── etf_flows.csv                  ← datele: o zi pe rând, milioane $
-├── update_data.py                     ← ia zilele noi de la SoSoValue (doar Python, fără pip)
-├── .github/workflows/update-data.yml  ← rulează update_data.py automat de 4 ori pe zi
+│   └── etf_flows.csv                  ← copie de rezervă: o zi pe rând, milioane $
+├── update_data.py                     ← actualizează manual CSV-ul de la SoSoValue (doar Python, fără pip)
+├── .github/workflows/update-data.yml  ← robot GitHub pentru CSV (momentan blocat de SoSoValue, vezi mai jos)
 └── README.md
 ```
 
-## Cât de „live” sunt datele
+## Cum se actualizează datele
+
+Pe Vercel, pagina cere datele de la `api/etf-flows`, care le ia direct de la SoSoValue. Răspunsul e ținut
+în cache 6 ore, deci site-ul se actualizează singur, fără calculatorul tău și fără commit-uri.
+Dacă funcția nu răspunde (cheie lipsă, API indisponibil, rulare locală), pagina folosește
+`data/etf_flows.csv`. Subsolul paginii arată ce sursă e folosită în acel moment.
 
 Fluxurile ETF sunt date **zilnice**, nu în timp real: emitenții (BlackRock, Fidelity etc.) raportează
 o dată pe zi, după închiderea bursei din SUA (~23:00 ora României), iar cifrele se definitivează T+1.
-Nu există o sursă publică intraday pentru „ce cumpără instituțiile acum”. Ziua de ieri apare deci
-în dashboard peste noapte sau a doua zi dimineață. Dacă datele rămân în urmă peste 4 zile,
+Ziua de ieri apare deci peste noapte sau a doua zi dimineață. Dacă datele rămân în urmă peste 4 zile,
 pagina afișează un avertisment roșu.
 
-De ce nu Farside: farside.co.uk blochează cererile automate (Cloudflare, 403), deci nu poate fi actualizat automat.
+De ce nu Farside: farside.co.uk blochează cererile automate (Cloudflare, 403).
+De ce nu robotul GitHub: SoSoValue (tot prin Cloudflare) blochează serverele GitHub Actions.
 
-## Pornire: actualizare automată zilnică (o singură dată)
+## Publicare pe Vercel
 
-1. **Cheia API SoSoValue:** cont pe https://sosovalue.com/developer/dashboard → „Apply your Key”.
-   Aștepți aprobarea (statusul apare în același dashboard).
-2. **Repo GitHub:** pe github.com → New repository (ex. `flux-btc`) → „uploading an existing file” →
-   tragi în pagină *conținutul* folderului `flux-btc` (inclusiv folderul `.github`) → Commit.
-   Dacă Windows ascunde `.github`, creezi fișierul în GitHub: Add file → Create new file →
-   numele `.github/workflows/update-data.yml` și lipești conținutul.
-3. **Cheia în GitHub:** repo → Settings → Secrets and variables → Actions → New repository secret →
-   nume `SOSO_API_KEY`, valoare = cheia.
-4. **Prima rulare:** tab-ul Actions → „Actualizare date ETF” → Run workflow. Dacă trece, CSV-ul primește
-   ultima lună de la SoSoValue (rândurile din acea lună sunt rescrise cu cifrele SoSoValue).
-   De aici rulează singur de 4 ori pe zi; dacă eșuează, GitHub îți trimite email.
-5. **Site-ul:** repo → Settings → Pages → Source: Deploy from a branch → `main` / `(root)` → Save.
-   Primești un link `https://<user>.github.io/flux-btc/`, care se actualizează la fiecare commit al botului.
-   (Merge și Vercel: Add New → Project → importi repo-ul.)
+1. vercel.com → **Add New → Project** → importi repo-ul `flux-btc` din GitHub
+   (dacă nu apare, „Adjust GitHub App Permissions” și îi dai acces la repo).
+2. Framework Preset: **Other**, fără build. Înainte de Deploy, la **Environment Variables**:
+   nume `SOSO_API_KEY`, valoare = cheia de pe https://sosovalue.com/developer/dashboard.
+3. **Deploy**. Verificare: `https://<site>.vercel.app/api/etf-flows` trebuie să dea JSON cu `rows`.
+   Prima cerere durează ~1 minut (12 ETF-uri, cu pauze din cauza limitei API), apoi vine din cache.
 
 ## Rulare locală (opțional)
 
-Pagina citește `data/etf_flows.csv`, deci trebuie deschisă printr-un server local:
-în VS Code instalezi extensia **Live Server** → click dreapta pe `index.html` → **Open with Live Server**.
+Local nu există funcția Vercel, așa că pagina folosește CSV-ul. Trebuie deschisă printr-un server local:
+în terminal `python -m http.server 8000`, apoi http://localhost:8000.
 
-Actualizare manuală a datelor (necesită Python 3.9+), în PowerShell:
+Actualizare manuală a CSV-ului (necesită Python 3.9+), în PowerShell:
 
 ```
 $env:SOSO_API_KEY = "cheia_ta"
@@ -55,4 +54,4 @@ python update_data.py
 
 Scriptul rescrie zilele din ultima lună cu cifrele SoSoValue și adaugă zilele noi. Se oprește la
 prima zi nedecontată (o reia data viitoare). Dacă suma ETF-urilor nu dă Total-ul (de obicei a apărut
-un ETF nou), iese cu eroare: adaugă tickerul în `TICKERS` din `update_data.py` și din `index.html`.
+un ETF nou), iese cu eroare: adaugă tickerul în `TICKERS` din `update_data.py`, `api/etf-flows.js` și `index.html`.

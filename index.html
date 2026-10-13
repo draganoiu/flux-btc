@@ -61,11 +61,22 @@ body { margin: 0; background: var(--color-bg); color: var(--color-fg); font-fami
     params: () => ({}), setParams() {}, resetParams() {}, setLink() {}, refresh() {},
   };
   let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(run, 150); });
+  // Întâi datele live (funcția Vercel api/etf-flows.js, ultima lună de la SoSoValue);
+  // dacă nu merge (local, cheie lipsă, API blocat), rezerva e data/etf_flows.csv.
+  const setSrc = (txt) => { const el = document.getElementById('data-src'); if (el) el.textContent = txt; };
+  const fromCsv = () => fetch('data/etf_flows.csv', { cache: 'no-store' })
+    .then((r) => { if (!r.ok) throw new Error(r.status); return r.text(); })
+    .then((txt) => { sources.etf = { status: 'ok', data: d3.csvParse(txt) }; setSrc('copia salvată (data/etf_flows.csv), nu datele live'); });
   window.addEventListener('DOMContentLoaded', () => {
-    fetch('data/etf_flows.csv', { cache: 'no-store' })
-      .then((r) => { if (!r.ok) throw new Error(r.status); return r.text(); })
-      .then((txt) => { sources.etf = { status: 'ok', data: d3.csvParse(txt) }; })
-      .catch((e) => { console.error('Nu pot citi data/etf_flows.csv. Deschide pagina printr-un server local (vezi README).', e); sources.etf = { status: 'error', data: [], message: String(e) }; })
+    fetch('api/etf-flows')
+      .then((r) => r.json().then((j) => { if (!r.ok || !j.rows || !j.rows.length) throw new Error(j.error || r.status); return j; }))
+      .then((j) => {
+        sources.etf = { status: 'ok', data: j.rows };
+        setSrc('SoSoValue, live · verificat ' + new Date(j.updated).toLocaleString('ro-RO', { dateStyle: 'short', timeStyle: 'short' }));
+        if (j.warning) console.warn(j.warning);
+      })
+      .catch((e) => { console.warn('Date live indisponibile, folosesc CSV-ul:', e); return fromCsv(); })
+      .catch((e) => { console.error('Nu pot citi nici data/etf_flows.csv. Deschide pagina printr-un server local (vezi README).', e); sources.etf = { status: 'error', data: [], message: String(e) }; })
       .then(run);
   });
 })();
@@ -452,7 +463,7 @@ dash.onData(() => {
   const stale = document.getElementById('stale');
   const lag = s ? Math.floor((Date.now() - new Date(s.last_date + 'T00:00:00Z')) / 864e5) : 0;
   stale.hidden = lag <= 4;
-  stale.textContent = `Atenție: ultima zi din date e ${s ? fmtDay(s.last_date) : ''} (acum ${lag} zile). Actualizarea automată pare oprită, verifică tab-ul Actions din GitHub.`;
+  stale.textContent = `Atenție: ultima zi din date e ${s ? fmtDay(s.last_date) : ''} (acum ${lag} zile). Datele live nu mai vin: verifică în Vercel funcția api/etf-flows și cheia SOSO_API_KEY.`;
   document.querySelectorAll('[data-source="summary"]').forEach((el) => {
     el.classList.toggle('dash-skeleton', !s && sum.status !== 'error');
     const f = el.dataset.field;
@@ -467,7 +478,7 @@ dash.onData(() => {
 });
 </script>
 
-<p class="fx-footer">Sursa datelor: <a href="https://sosovalue.com/assets/etf/us-btc-spot" target="_blank" rel="noopener">SoSoValue</a> (actualizare automată de 4 ori pe zi) · fluxuri nete zilnice în milioane $, ETF-uri spot Bitcoin din SUA. Material informativ, nu sfat de investiții.</p>
+<p class="fx-footer">Sursa datelor: <a href="https://sosovalue.com/assets/etf/us-btc-spot" target="_blank" rel="noopener">SoSoValue</a> (<span id="data-src">se încarcă…</span>) · fluxuri nete zilnice în milioane $, ETF-uri spot Bitcoin din SUA. Material informativ, nu sfat de investiții.</p>
 </div>
 </body>
 </html>
