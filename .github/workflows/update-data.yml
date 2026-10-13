@@ -1,0 +1,32 @@
+# Rulează update_data.py de 4 ori pe zi și face commit la CSV doar dacă s-a schimbat ceva.
+# Fluxurile pentru o zi se definitivează T+1 (după închiderea bursei din SUA, ~23:00 ora României),
+# așa că rulările de noapte/dimineață prind ziua nouă, iar cele de după-amiază prind corecțiile.
+name: Actualizare date ETF
+
+on:
+  schedule:
+    - cron: "15 1,7,13,19 * * *"   # UTC
+  workflow_dispatch:                # buton „Run workflow” pentru rulare manuală
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Ia datele de la SoSoValue
+        run: python update_data.py
+        env:
+          SOSO_API_KEY: ${{ secrets.SOSO_API_KEY }}
+      - name: Commit dacă s-a schimbat CSV-ul
+        if: success() || failure()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add data/etf_flows.csv
+          git diff --cached --quiet || (git commit -m "date ETF $(date -u +%F)" && git push)
