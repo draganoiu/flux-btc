@@ -40,10 +40,12 @@ def get(path: str, key: str, **params) -> list:
                 body = json.load(resp)
             break
         except urllib.error.HTTPError as e:
+            raw = e.read() or b"{}"
             try:
-                body = json.loads(e.read() or b"{}")
+                body = json.loads(raw)
             except ValueError:
-                body = {}
+                body = {"message": f"răspuns non-JSON (server={e.headers.get('Server')}, "
+                                   f"cf-mitigated={e.headers.get('cf-mitigated')}): {raw[:200]!r}"}
             if e.code in (429, 500, 502, 503, 504) and attempt < 3:
                 time.sleep(int(body.get("retry_after", 30)) + 1)
                 continue
