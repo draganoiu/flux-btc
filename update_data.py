@@ -72,9 +72,10 @@ def main() -> None:
     end = date.today()
     window = {"start_date": (end - timedelta(days=30)).isoformat(), "end_date": end.isoformat()}
 
-    totals = {r["date"]: r["total_net_inflow"]
+    # .get(): în zilele încă nedecontate SoSoValue poate omite câmpul cu totul, nu doar să-l dea null.
+    totals = {r["date"]: r.get("total_net_inflow")
               for r in get("/etfs/summary-history", key, symbol="BTC", country_code="US", limit=300, **window)}
-    per_etf = {t: {r["date"]: r["net_inflow"] for r in get(f"/etfs/{t}/history", key, **window)} for t in TICKERS}
+    per_etf = {t: {r["date"]: r.get("net_inflow") for r in get(f"/etfs/{t}/history", key, **window)} for t in TICKERS}
 
     with CSV_PATH.open(newline="", encoding="utf-8") as f:
         rows = {r["date"]: r for r in csv.DictReader(f)}
