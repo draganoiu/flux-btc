@@ -112,6 +112,15 @@ body { margin: 0; background: var(--color-bg); color: var(--color-fg); font-fami
 .fx-table .num { text-align: right; }
 .fx-pill { display: inline-block; padding: 0 .5rem; border-radius: 999px; font-size: var(--cds-font-size-caption); border: 1px solid currentColor; }
 .fx-muted { color: var(--color-fg-muted); }
+.fx-five-head { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: var(--cds-gap-lg); align-items: end; }
+.fx-five-big { font-family: var(--font-anthropic-serif); font-size: 44px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.fx-five-verdict { font-size: var(--cds-font-size-heading); font-weight: 600; margin-top: var(--cds-gap-xs); }
+.fx-five-days { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--cds-gap-sm); margin: var(--cds-gap-lg) 0; }
+.fx-five-day { border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-sm); text-align: center; border-top-width: 4px; min-width: 0; }
+.fx-five-day.buy { border-top-color: var(--color-ok); }
+.fx-five-day.sell { border-top-color: var(--color-bad); }
+.fx-five-day .w { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+.fx-five-day .n { font-size: var(--cds-font-size-body); font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; overflow-wrap: anywhere; }
 .fx-stale { margin: var(--cds-gap-sm) 0 0; padding: var(--cds-pad-sm) var(--cds-pad-md); border-radius: var(--cds-radius); border: 1px solid var(--color-bad); color: var(--color-bad); font-size: var(--cds-font-size-body); }
 .fx-how { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); line-height: 1.55; margin: 0; }
 .fx-how li { margin-bottom: var(--cds-gap-xs); }
@@ -138,6 +147,25 @@ body { margin: 0; background: var(--color-bg); color: var(--color-fg); font-fami
     </p>
     <p class="fx-stale" id="stale" hidden></p>
   </header>
+
+  <section class="fx-card" id="ultimele-5">
+    <div class="fx-five-head">
+      <div>
+        <p class="fx-label">Suma ultimelor 5 zile de tranzacționare · <span id="f5-range">—</span></p>
+        <div class="fx-five-big" id="f5-sum">—</div>
+        <div class="fx-five-verdict" id="f5-verdict">—</div>
+      </div>
+      <div>
+        <p class="fx-label">Delta față de cele 5 zile dinainte (<span id="f5-prev-range">—</span>: <span id="f5-prev">—</span>)</p>
+        <div class="fx-big" id="f5-delta">—</div>
+        <div class="fx-sub" id="f5-delta-note">—</div>
+      </div>
+    </div>
+    <div class="fx-five-days" id="f5-days"></div>
+    <h2>Suma pe 5 zile, zi de zi</h2>
+    <p class="fx-note">Fiecare bară = suma fluxurilor din ultimele 5 zile de tranzacționare până în acea zi. Când barele trec din verde în roșu, instituțiile au trecut pe vânzare netă (și invers).</p>
+    <div class="fx-chart" id="rolling-chart" style="min-height: 240px"></div>
+  </section>
 
   <section class="fx-tiles" id="cifre">
     <div class="fx-card">
@@ -277,6 +305,20 @@ dash.calc('summary', {
   },
 });
 
+dash.calc('five', {
+  inputs: ['etf'],
+  title: 'Ultimele 5 zile',
+  description: 'Suma pe ultimele 5 zile, delta față de cele 5 dinainte și suma glisantă pe 5 zile pentru fiecare zi.',
+  fn: (etf) => {
+    const rows = etf.map((r) => ({ date: r.date, t: Number(r.Total) })).sort((a, b) => (a.date < b.date ? -1 : 1));
+    const r1 = (x) => Math.round(x * 10) / 10;
+    const sum = (a) => r1(a.reduce((s, r) => s + r.t, 0));
+    const last = rows.slice(-5), prev = rows.slice(-10, -5);
+    const rolling = rows.slice(4).map((r, i) => ({ date: r.date, sum: sum(rows.slice(i, i + 5)) }));
+    return [{ last, prev, sum: sum(last), prevSum: prev.length === 5 ? sum(prev) : null, rolling }];
+  },
+});
+
 dash.calc('weekly', {
   inputs: ['etf'],
   title: 'Flux net pe săptămână',
@@ -399,6 +441,73 @@ function drawDaily(el, rows) {
     .text((d) => fmtDay(d.date));
 }
 
+function drawFive(f) {
+  const $ = (id) => document.getElementById(id);
+  const range = (a) => (a.length ? fmtDay(a[0].date) + ' – ' + fmtDay(a[a.length - 1].date) : '—');
+  $('f5-range').textContent = range(f.last);
+  $('f5-sum').textContent = (f.sum > 0 ? '▲ ' : f.sum < 0 ? '▼ ' : '') + fmtM(f.sum);
+  signClass($('f5-sum'), f.sum);
+  const plus = f.last.filter((r) => r.t > 0).length, minus = f.last.filter((r) => r.t < 0).length;
+  $('f5-verdict').textContent = (f.sum > 0 ? 'Pe plus: instituțiile au cumpărat net' : f.sum < 0 ? 'Pe minus: instituțiile au vândut net' : 'Neutru')
+    + ` · ${plus} ${plus === 1 ? 'zi' : 'zile'} pe plus, ${minus} pe minus`;
+  signClass($('f5-verdict'), f.sum);
+  $('f5-prev-range').textContent = range(f.prev);
+  if (f.prevSum === null) {
+    $('f5-prev').textContent = '—'; $('f5-delta').textContent = '—'; $('f5-delta-note').textContent = 'Nu sunt destule zile pentru comparație.';
+  } else {
+    const delta = Math.round((f.sum - f.prevSum) * 10) / 10;
+    $('f5-prev').textContent = fmtM(f.prevSum);
+    $('f5-delta').textContent = (delta > 0 ? '▲ ' : delta < 0 ? '▼ ' : '') + fmtM(delta);
+    signClass($('f5-delta'), delta);
+    $('f5-delta-note').textContent = delta > 0 ? 'Fluxul s-a îmbunătățit: mai multă cumpărare sau mai puțină vânzare decât înainte.'
+      : delta < 0 ? 'Fluxul s-a înrăutățit: mai puțină cumpărare sau mai multă vânzare decât înainte.' : 'Fără schimbare.';
+  }
+  $('f5-days').replaceChildren(...f.last.map((r) => {
+    const c = document.createElement('div'); c.className = 'fx-five-day ' + (r.t > 0 ? 'buy' : r.t < 0 ? 'sell' : '');
+    const w = document.createElement('div'); w.className = 'w'; w.textContent = ['dum', 'lun', 'mar', 'mie', 'joi', 'vin', 'sâm'][new Date(r.date + 'T00:00:00Z').getUTCDay()] + ' ' + fmtDay(r.date);
+    const n = document.createElement('div'); n.className = 'n'; n.textContent = fmtM(r.t); signClass(n, r.t);
+    c.append(w, n); return c;
+  }));
+}
+
+function drawRolling(el, data) {
+  el.replaceChildren();
+  if (!data.length) return;
+  const W = el.clientWidth || 600, H = 240;
+  const ext = d3.max(data, (d) => Math.abs(d.sum)) || 1;
+  const y = d3.scaleLinear([-ext * 1.1, ext * 1.1], [H - 28, 8]).nice();
+  const svg = d3.select(el).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).style('display', 'block').style('overflow', 'visible');
+  const yAxis = d3.axisLeft(y).ticks(5).tickFormat((v) => (v > 0 ? '+' : '') + d3.format(',')(v));
+  const g0 = svg.append('g').call(yAxis);
+  let ml = 0; g0.selectAll('text').each(function () { ml = Math.max(ml, this.getComputedTextLength()); });
+  g0.remove();
+  const L = Math.ceil(ml) + 14, R = 8;
+  const x = d3.scaleBand(data.map((d) => d.date), [L, W - R]).padding(0.25);
+  svg.append('g').selectAll('line').data(y.ticks(5)).join('line')
+    .attr('x1', L).attr('x2', W - R).attr('y1', (v) => y(v)).attr('y2', (v) => y(v)).attr('stroke', 'var(--cds-chart-grid)');
+  const ya = svg.append('g').attr('transform', `translate(${L - 6},0)`).call(yAxis.tickSize(0)).attr('font-size', null).attr('font-family', null);
+  ya.select('.domain').remove();
+  ya.selectAll('text').attr('fill', 'var(--color-fg-muted)').style('font-size', 'var(--cds-font-size-caption)');
+  svg.append('line').attr('x1', L).attr('x2', W - R).attr('y1', y(0)).attr('y2', y(0)).attr('stroke', 'var(--cds-chart-axis)');
+  const bw = Math.min(32, x.bandwidth()), off = (x.bandwidth() - bw) / 2;
+  const tip = document.createElement('div'); tip.className = 'fx-tip'; el.append(tip);
+  svg.append('g').selectAll('rect').data(data).join('rect')
+    .attr('x', (d) => x(d.date) + off).attr('width', bw)
+    .attr('y', (d) => Math.min(y(d.sum), y(0))).attr('height', (d) => Math.max(1, Math.abs(y(d.sum) - y(0))))
+    .attr('rx', 4).attr('fill', (d) => (d.sum >= 0 ? 'var(--color-ok)' : 'var(--color-bad)'))
+    .attr('opacity', (d, i) => (i === data.length - 1 ? 1 : 0.6))
+    .on('mousemove', (ev, d) => {
+      const [mx] = d3.pointer(ev, el);
+      tipShow(tip, el, mx, Math.min(y(d.sum), y(0)), [['d', '5 zile până la ' + fmtDay(d.date)], ['', 'Suma: ' + fmtM(d.sum)]]);
+    })
+    .on('mouseleave', () => { tip.style.display = 'none'; });
+  const every = Math.max(1, Math.ceil(data.length / Math.max(1, Math.floor((W - L) / 56))));
+  svg.append('g').selectAll('text').data(data.filter((d, i) => (data.length - 1 - i) % every === 0)).join('text')
+    .attr('x', (d) => x(d.date) + x.bandwidth() / 2).attr('y', H - 8).attr('text-anchor', 'middle')
+    .attr('fill', 'var(--color-fg-muted)').style('font-size', 'var(--cds-font-size-caption)')
+    .text((d) => fmtDay(d.date));
+}
+
 function drawEtf(el, rows) {
   el.replaceChildren();
   const W = el.clientWidth || 400, rowH = 26, H = rows.length * rowH + 8;
@@ -452,6 +561,10 @@ dash.onData(() => {
   else etfChart.replaceChildren();
 
   const weekly = dash.data('weekly'), weeksEl = document.getElementById('weeks-cards');
+  const five = dash.data('five'), rollEl = document.getElementById('rolling-chart');
+  if (five.status === 'ok' && five.data.length && five.data[0].last.length) { drawFive(five.data[0]); drawRolling(rollEl, five.data[0].rolling); }
+  else if (five.status === 'error') failLine(rollEl);
+
   if (weekly.status === 'ok') { drawWeeks(weeksEl, weekly.data); fillWeekTable(weekly.data); }
   else { if (weekly.status === 'error') failLine(weeksEl); else weeksEl.replaceChildren(); document.querySelector('.fx-wtable tbody').replaceChildren(); }
 
