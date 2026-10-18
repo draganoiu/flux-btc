@@ -61,23 +61,35 @@ body { margin: 0; background: var(--color-bg); color: var(--color-fg); font-fami
     params: () => ({}), setParams() {}, resetParams() {}, setLink() {}, refresh() {},
   };
   let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(run, 150); });
-  // Întâi datele live (funcția Vercel api/etf-flows.js, ultima lună de la SoSoValue);
-  // dacă nu merge (local, cheie lipsă, API blocat), rezerva e data/etf_flows.csv.
+  // 1) Afișează imediat data/etf_flows.csv (istoricul complet, actualizat de robotul GitHub de 4 ori pe zi).
+  // 2) În fundal cere datele live (funcția Vercel api/etf-flows.js, ultima lună de la SoSoValue). Când nu e în
+  //    cache poate dura peste un minut; când sosesc, înlocuiesc zilele respective din CSV și pagina se redesenează.
   const setSrc = (txt) => { const el = document.getElementById('data-src'); if (el) el.textContent = txt; };
-  const fromCsv = () => fetch('data/etf_flows.csv', { cache: 'no-store' })
-    .then((r) => { if (!r.ok) throw new Error(r.status); return r.text(); })
-    .then((txt) => { sources.etf = { status: 'ok', data: d3.csvParse(txt) }; setSrc('copia salvată (data/etf_flows.csv), nu datele live'); });
   window.addEventListener('DOMContentLoaded', () => {
+    let csvRows = [];
+    const csvDone = fetch('data/etf_flows.csv', { cache: 'no-store' })
+      .then((r) => { if (!r.ok) throw new Error(r.status); return r.text(); })
+      .then((txt) => {
+        csvRows = d3.csvParse(txt);
+        if (sources.etf.status !== 'ok') { sources.etf = { status: 'ok', data: csvRows }; setSrc('copia din GitHub · se verifică datele live…'); }
+      })
+      .catch((e) => {
+        console.error('Nu pot citi data/etf_flows.csv. Deschide pagina printr-un server local (vezi README).', e);
+        if (sources.etf.status !== 'ok') sources.etf = { status: 'error', data: [], message: String(e) };
+      })
+      .then(run);
     fetch('api/etf-flows')
       .then((r) => r.json().then((j) => { if (!r.ok || !j.rows || !j.rows.length) throw new Error(j.error || r.status); return j; }))
+      .then((j) => csvDone.then(() => j))
       .then((j) => {
-        sources.etf = { status: 'ok', data: j.rows };
+        const byDate = new Map(csvRows.map((r) => [r.date, r]));
+        j.rows.forEach((r) => byDate.set(r.date, r));
+        sources.etf = { status: 'ok', data: [...byDate.values()] };
         setSrc('SoSoValue, live · verificat ' + new Date(j.updated).toLocaleString('ro-RO', { dateStyle: 'short', timeStyle: 'short' }));
         if (j.warning) console.warn(j.warning);
+        run();
       })
-      .catch((e) => { console.warn('Date live indisponibile, folosesc CSV-ul:', e); return fromCsv(); })
-      .catch((e) => { console.error('Nu pot citi nici data/etf_flows.csv. Deschide pagina printr-un server local (vezi README).', e); sources.etf = { status: 'error', data: [], message: String(e) }; })
-      .then(run);
+      .catch((e) => { console.warn('Date live indisponibile, rămân pe CSV:', e); if (sources.etf.status === 'ok') setSrc('copia din GitHub (actualizată automat de 4 ori pe zi)'); });
   });
 })();
 </script>
